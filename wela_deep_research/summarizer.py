@@ -13,6 +13,67 @@ from wela_agents.schema.template.prompt_template import StringPromptTemplate
 from wela_deep_research.prompt import summarization_instructions
 from wela_deep_research.adapter import Adapter
 
+def split_text_by_paragraphs(text, max_chars=16000):
+    # 分割段落并过滤空行
+    paragraphs = []
+    current_para = []
+    
+    for line in text.splitlines():
+        # 跳过空行
+        if not line.strip():
+            continue
+            
+        # 非空行加入当前段落
+        current_para.append(line)
+        
+        # 如果行以句号结束或长度超过50字符，视为段落结束
+        if line.strip().endswith(('。', '!', '?', '.', '！', '？')) or len(line) > 50:
+            if current_para:
+                # 将段落内的多行连接为单个字符串
+                paragraphs.append('\n'.join(current_para))
+                current_para = []
+    
+    # 处理最后一个未结束的段落
+    if current_para:
+        paragraphs.append('\n'.join(current_para))
+    
+    # 如果没有检测到段落，则按每行处理
+    if not paragraphs:
+        paragraphs = [line for line in text.splitlines() if line.strip()]
+    
+    # 分组段落并连接为字符串
+    result = []
+    current_group = []
+    current_count = 0
+
+    for para in paragraphs:
+        para_length = len(para)
+        
+        # 处理超长段落（单独成组）
+        if para_length > max_chars:
+            if current_group:
+                result.append('\n'.join(current_group))
+                current_group = []
+                current_count = 0
+            result.append(para)
+            continue
+        
+        # 检查添加后是否超限
+        if current_count + para_length <= max_chars:
+            current_group.append(para)
+            current_count += para_length
+        else:
+            if current_group:
+                result.append('\n'.join(current_group))
+            current_group = [para]
+            current_count = para_length
+    
+    # 添加最后一组
+    if current_group:
+        result.append('\n'.join(current_group))
+    
+    return result
+
 class Summarizer(Adapter):
 
     def __init__(self, *, model, state, proxy: str, input_key, output_key):
@@ -86,8 +147,16 @@ class Summarizer(Adapter):
                 markdown_content = self.__convert_to_markdown(main_content).strip()
 
                 if markdown_content:
-                    response = super().predict(webpage_content=markdown_content)["content"]
-                    search_result.update(json.loads(response.lstrip("```json").rstrip("```")))
+                    paragraphs = split_text_by_paragraphs(markdown_content)
+                    for idx, paragraph in enumerate(paragraphs):
+                        logging.info(f"> Reading paragraph {idx+1} in {url}")
+                        response = super().predict(webpage_content=paragraph)["content"]
+                        web_summary = json.loads(response.lstrip("```json").rstrip("```"))
+                        if "summary" not in search_result:
+                            search_result.update(web_summary)
+                        else:
+                            search_result["summary"] += "\n" + web_summary["summary"]
+                            search_result["key_excerpts"].extend(web_summary["key_excerpts"])
                     logging.info(f"> Successfully read page: {url}")
                 else:
                     logging.error(f"> Get empty main content for: {url}")
