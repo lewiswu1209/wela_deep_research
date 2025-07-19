@@ -3,23 +3,26 @@ import time
 import json
 import logging
 
+from typing import Any
+from typing import Union
+from typing import Generator
 from wela_agents.models.openai_chat import OpenAIChat
 from wela_agents.schema.template.openai_chat import ChatTemplate
-from wela_agents.schema.template.openai_chat import SystemMessageTemplate
+from wela_agents.schema.template.openai_chat import UserMessageTemplate
 from wela_agents.schema.template.prompt_template import StringPromptTemplate
 
-from wela_deep_research.state import ReportState
-from wela_deep_research.prompt import report_planner_instructions
-from wela_deep_research.adapter import Adapter
+from .state import ReportState
+from .prompt import report_planner_instructions
+from .adapter import Adapter
 
 class Planner(Adapter):
 
-    def __init__(self, *, model: OpenAIChat, state: ReportState, input_key: str, output_key: str):
+    def __init__(self, *, model: OpenAIChat, state: ReportState, input_key: str, output_key: str) -> None:
         super().__init__(
             model=model,
             prompt_template=ChatTemplate(
                 [
-                    SystemMessageTemplate(
+                    UserMessageTemplate(
                         StringPromptTemplate(report_planner_instructions)
                     )
                 ]
@@ -29,7 +32,7 @@ class Planner(Adapter):
             output_key=output_key
         )
 
-    def predict(self, **kwargs):
+    def predict(self, **kwargs: Any) -> Union[Any, Generator[Any, None, None]]:
         self.state["topic"] = kwargs["topic"]
 
         logging.info(f"> Planning report structure, the topic is: '{self.state["topic"]}'")

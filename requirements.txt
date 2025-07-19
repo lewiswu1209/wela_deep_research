@@ -1,0 +1,4 @@
+html2text
+playwright
+wela_agents
+readability-lxml

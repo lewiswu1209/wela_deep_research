@@ -3,53 +3,49 @@ import json
 import logging
 import html2text
 
+from typing import Any
+from typing import List
+from typing import Union
+from typing import Generator
 from readability import Document
 from playwright.sync_api import sync_playwright
-
+from wela_agents.models.openai_chat import OpenAIChat
 from wela_agents.schema.template.openai_chat import ChatTemplate
 from wela_agents.schema.template.openai_chat import UserMessageTemplate
 from wela_agents.schema.template.prompt_template import StringPromptTemplate
 
-from wela_deep_research.prompt import summarization_instructions
-from wela_deep_research.adapter import Adapter
+from .state import ReportState
+from .prompt import summarization_instructions
+from .adapter import Adapter
 
-def split_text_by_paragraphs(text, max_chars=16000):
-    # 分割段落并过滤空行
+def split_text_by_paragraphs(text: str, max_chars: int=16000) -> List[str]:
     paragraphs = []
     current_para = []
-    
+
     for line in text.splitlines():
-        # 跳过空行
         if not line.strip():
             continue
-            
-        # 非空行加入当前段落
+
         current_para.append(line)
-        
-        # 如果行以句号结束或长度超过50字符，视为段落结束
+
         if line.strip().endswith(('。', '!', '?', '.', '！', '？')) or len(line) > 50:
             if current_para:
-                # 将段落内的多行连接为单个字符串
                 paragraphs.append('\n'.join(current_para))
                 current_para = []
-    
-    # 处理最后一个未结束的段落
+
     if current_para:
         paragraphs.append('\n'.join(current_para))
-    
-    # 如果没有检测到段落，则按每行处理
+
     if not paragraphs:
         paragraphs = [line for line in text.splitlines() if line.strip()]
-    
-    # 分组段落并连接为字符串
+
     result = []
     current_group = []
     current_count = 0
 
     for para in paragraphs:
         para_length = len(para)
-        
-        # 处理超长段落（单独成组）
+
         if para_length > max_chars:
             if current_group:
                 result.append('\n'.join(current_group))
@@ -57,8 +53,7 @@ def split_text_by_paragraphs(text, max_chars=16000):
                 current_count = 0
             result.append(para)
             continue
-        
-        # 检查添加后是否超限
+
         if current_count + para_length <= max_chars:
             current_group.append(para)
             current_count += para_length
@@ -67,16 +62,15 @@ def split_text_by_paragraphs(text, max_chars=16000):
                 result.append('\n'.join(current_group))
             current_group = [para]
             current_count = para_length
-    
-    # 添加最后一组
+
     if current_group:
         result.append('\n'.join(current_group))
-    
+
     return result
 
 class Summarizer(Adapter):
 
-    def __init__(self, *, model, state, proxy: str, input_key, output_key):
+    def __init__(self, *, model: OpenAIChat, state: ReportState, proxy: str, input_key: str, output_key: str) -> None:
         super().__init__(
             model=model,
             prompt_template=ChatTemplate(
@@ -93,8 +87,8 @@ class Summarizer(Adapter):
         self.__proxy = proxy
         self.__headless = True
         self.__converter = html2text.HTML2Text()
-        self.__converter.ignore_links = False
-        self.__converter.ignore_images = False
+        self.__converter.ignore_links = True
+        self.__converter.ignore_images = True
         self.__converter.body_width = 0
 
     def __fetch_html_with_playwright(self, url: str) -> str:
@@ -112,7 +106,6 @@ class Summarizer(Adapter):
             )
             page = context.new_page()
 
-            # 绕过 navigator.webdriver 检测
             page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
@@ -135,7 +128,7 @@ class Summarizer(Adapter):
     def __convert_to_markdown(self, html: str) -> str:
         return self.__converter.handle(html)
 
-    def predict(self, **kwargs):
+    def predict(self, **kwargs: Any) -> Union[Any, Generator[Any, None, None]]:
         search_results = self.state["search_results"]
 
         for search_result in search_results:
